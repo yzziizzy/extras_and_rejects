@@ -21,6 +21,7 @@ conf strings[] = {
 	{"-", "MINUS"},
 	{"*", "MUL"},
 	{"/", "DIV"},
+	{"%", "MOD"},
 	{"&", "BIT_AND"},
 	{"|", "BIT_OR"},
 	{"^", "BIT_XOR"},
@@ -35,6 +36,9 @@ conf strings[] = {
 	{"<=", "LTE"},
 	{"<<", "SHL"},
 	{"==", "EQ"},
+	{"!=", "NEQ"},
+	{"(", "LPAREN"},
+	{")", "RPAREN"},
 	{NULL, NULL},
 };
 
