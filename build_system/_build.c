@@ -65,7 +65,7 @@ char* release_cflags[] = {
 };
 
 // -ffast-math but without reciprocal approximations 
-char* cflags[] = {
+char* common_cflags[] = {
 	"-std=gnu11", 
 	"-ffunction-sections", "-fdata-sections",
 	"-DLINUX",
@@ -113,8 +113,9 @@ char* cflags[] = {
 
 
 
-int compile_source(char* src_path, char* obj_path) {
-	char* cmd = sprintfdup("gcc -c -o %s %s %s", obj_path, src_path, g_gcc_opts_flat);
+int compile_source(char* src_path, char* obj_path, objfile* obj) {
+	char* cmd = sprintfdup("gcc -c -o %s %s %s", obj_path, src_path, obj->gcc_opts_flat);
+	if(obj->verbose) puts(cmd);
 //	printf("%s\n", cmd);
 	strlist_push(&compile_cache, cmd);
 //	exit(1);
@@ -123,7 +124,7 @@ int compile_source(char* src_path, char* obj_path) {
 
 
 
-void check_source(char* raw_src_path, strlist* objs) {
+void check_source(char* raw_src_path, strlist* objs, objfile* o) {
 	time_t src_mtime, obj_mtime = 0, dep_mtime = 0;
 	
 	char* src_path = resolve_path(raw_src_path, &src_mtime);
@@ -131,7 +132,7 @@ void check_source(char* raw_src_path, strlist* objs) {
 	char* base = base_name(src_path);
 	
 //	char* build_base = "debug";
-	char* src_build_dir = path_join(build_dir, src_dir);
+	char* src_build_dir = path_join(o->build_dir, src_dir);
 	char* obj_path = path_join(src_build_dir, base);
 	
 	// cheap and dirty
@@ -148,109 +149,68 @@ void check_source(char* raw_src_path, strlist* objs) {
 	char* real_obj_path = resolve_path(obj_path, &obj_mtime);
 	if(obj_mtime < src_mtime) {
 //		printf("  objtime compile\n");
-		compile_source(src_path, real_obj_path);
+		compile_source(src_path, real_obj_path, o);
 		return;
 	}
 	
 	
-	if(gen_deps(src_path, dep_path, src_mtime, obj_mtime)) {
+	if(gen_deps(src_path, dep_path, src_mtime, obj_mtime, o)) {
 //		printf("  deep dep compile\n");
-		compile_source(src_path, real_obj_path);
+		compile_source(src_path, real_obj_path, o);
 	}
 	
 	//gcc -c -o $2 $1 $CFLAGS $LDADD
 }
 
 
-struct {
-	int debug;
-	int profiling;
-	int release;
-	int clean;
-} g_options;
 
-
-int main(int argc, char* argv[]) {
+void global_init() {
 	string_cache_init(2048);
 	realname_cache_init();
 	strlist_init(&compile_cache);
 	hash_init(&mkdir_cache, 128);
 	g_nprocs = get_nprocs();
+}
+
+
+
+int main(int argc, char* argv[]) {
+	char* cmd;
+
+	global_init();
 	
 	// defaults
-	g_options.debug = 2;
 	
-	char* tmp;
-	int mode = 0;
+	objfile* obj = calloc(1, sizeof(*obj));
 	
-	for(int a = 1; a < argc; a++) {
-		if(argv[a][0] == '-') {
-			for(int i = 0; argv[a][i]; i++) {
-				
-				switch(argv[a][i]) {
-					case 'd': // debug: -ggdb
-						g_options.debug = 1;
-						if(g_options.release == 1) {
-							fprintf(stderr, "Debug and Release set at the same time.\n");
-						}
-						break;
-						
-					case 'p': // profiling: -pg
-						g_options.profiling = 1;
-						break;
-						
-					case 'r': // release: -O3
-						g_options.release = 1;
-						g_options.debug = 0;
-						break;
-						
-					case 'c': // clean
-						g_options.clean = 1;
-						break;
-				}
-			}		
-		}
+	obj->mode_debug = 2;
 	
-	}
+	obj->exe_path = "hworld";
+	obj->source_dir = "./"; // "src"
+	obj->base_build_dir = "build";
 	
+	obj->sources = sources;
 	
-	// delete the old executable
-	unlink(exe_path);
+	obj->debug_cflags = debug_cflags;
+	obj->release_cflags = release_cflags;
+	obj->profiling_cflags = profiling_cflags;
+	obj->common_cflags = common_cflags;
 	
-	char build_subdir[20] = {0};
-	
-	if(g_options.debug) strcat(build_subdir, "d");
-	if(g_options.profiling) strcat(build_subdir, "p");
-	if(g_options.release) strcat(build_subdir, "r");
+	obj->libs_needed = libs_needed;
+	obj->lib_headers_needed = lib_headers_needed;
+	obj->ld_add = ld_add;
 
-	build_dir = path_join(base_build_dir, build_subdir);
+
+	parse_cli_opts(argc, argv, obj);
 	
-	// delete old build files if needed 
-	if(g_options.clean) {
-		printf("Cleaning directory %s/\n", build_dir);
-		system(sprintfdup("rm -rf %s/*", build_dir));
-	}
-	
-	mkdirp_cached(build_dir, 0755);
+	start_obj(obj);
 	
 	//---------------------------
 	//
 	// [ custom init code here]
 	//
 	//---------------------------
-	
-	g_gcc_opts_list = concat_lists(ld_add, cflags);
-	
-	if(g_options.debug) g_gcc_opts_list = concat_lists(g_gcc_opts_list, debug_cflags);
-	if(g_options.profiling) g_gcc_opts_list = concat_lists(g_gcc_opts_list, profiling_cflags);
-	if(g_options.release) g_gcc_opts_list = concat_lists(g_gcc_opts_list, release_cflags);
-	
-	g_gcc_opts_flat = join_str_list(g_gcc_opts_list, " ");
-	g_gcc_include = pkg_config(lib_headers_needed, "I");
-	g_gcc_libs = pkg_config(libs_needed, "L");
-	tmp = g_gcc_opts_flat;
-	g_gcc_opts_flat = strjoin(" ", g_gcc_opts_flat, g_gcc_include);
-	free(tmp);
+
 	
 	//printf("%s\n\n\n\n",g_gcc_opts_flat);
 //	rglob src;
@@ -259,12 +219,12 @@ int main(int argc, char* argv[]) {
 	strlist objs;
 	strlist_init(&objs);
 	
-	float source_count = list_len(sources);
+	float source_count = list_len(obj->sources);
 	
-	for(int i = 0; sources[i]; i++) {
+	for(int i = 0; obj->sources[i]; i++) {
 //		printf("%i: checking %s\n", i, sources[i]);
-		char* t = path_join(source_dir, sources[i]);
-		check_source(t, &objs);
+		char* t = path_join(obj->source_dir, obj->sources[i]);
+		check_source(t, &objs, obj);
 		free(t);
 		
 		printf("\rChecking dependencies...  %s", printpct((i * 100) / source_count));
@@ -282,18 +242,10 @@ int main(int argc, char* argv[]) {
 	char* objects_flat = join_str_list(objs.entries, " ");
 	
 	
+	cmd = sprintfdup("ar rcs %s/tmp.a %s", obj->build_dir, objects_flat);
+	if(obj->verbose) puts(cmd);
+	
 	printf("Creating archive...      "); fflush(stdout);
-	if(system(sprintfdup("ar rcs %s/tmp.a %s", build_dir, objects_flat))) {
-		printf(" \e[1;31mFAIL\e[0m\n");
-		return 1;
-	}
-	else {
-		printf(" \e[32mDONE\e[0m\n");
-	}
-	
-	
-	printf("Linking executable...    "); fflush(stdout);
-	char* cmd = sprintfdup("gcc -Wl,--gc-sections %s %s/tmp.a -o %s %s %s", g_options.profiling ? "-pg" : "", build_dir, exe_path, g_gcc_libs, g_gcc_opts_flat);
 	if(system(cmd)) {
 		printf(" \e[1;31mFAIL\e[0m\n");
 		return 1;
@@ -302,13 +254,30 @@ int main(int argc, char* argv[]) {
 		printf(" \e[32mDONE\e[0m\n");
 	}
 	
-	// erase the build output if it succeeded
-	printf("\e[F\e[K");
-	printf("\e[F\e[K");
-	printf("\e[F\e[K");
-	printf("\e[F\e[K");
 	
-	printf("\e[32mBuild successful:\e[0m %s\n\n", exe_path);
+	cmd = sprintfdup("gcc -Wl,--gc-sections %s %s/tmp.a -o %s %s %s", 
+		obj->mode_profiling ? "-pg" : "", obj->build_dir, obj->exe_path, obj->gcc_libs, obj->gcc_opts_flat
+	);
+	if(obj->verbose) puts(cmd);
+	
+	printf("Linking executable...    "); fflush(stdout);
+	if(system(cmd)) {
+		printf(" \e[1;31mFAIL\e[0m\n");
+		return 1;
+	}
+	else {
+		printf(" \e[32mDONE\e[0m\n");
+	}
+	
+	if(!obj->verbose) {
+		// erase the build output if it succeeded
+		printf("\e[F\e[K");
+		printf("\e[F\e[K");
+		printf("\e[F\e[K");
+		printf("\e[F\e[K");
+	}
+	
+	printf("\e[32mBuild successful:\e[0m %s\n\n", obj->exe_path);
 	
 	return 0;
 }

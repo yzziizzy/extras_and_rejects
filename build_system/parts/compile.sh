@@ -9,8 +9,9 @@ cat header.c \
 	hash.c \
 	strlist.c \
 	fs.c \
-	cprocs.c \
 	pkgconfig.c \
+	init.c \
+	cprocs.c \
 	rglob.c \
 	gcc.c \
 	\

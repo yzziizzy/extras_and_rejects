@@ -50,6 +50,44 @@ char* g_gcc_libs;
 
 int g_nprocs;
 
+
+typedef struct {
+	// user config
+	char** sources;
+
+	char** debug_cflags;
+	char** release_cflags;
+	char** profiling_cflags;
+	char** common_cflags;
+	char** libs_needed;
+	char** lib_headers_needed;
+	char** ld_add;
+	
+	char* source_dir;// "src"
+	char* exe_path; // the executable name
+	char* base_build_dir; //  = "build";
+	
+	char mode_debug;
+	char mode_profiling;
+	char mode_release;
+	char clean_first;
+	
+	char verbose;
+	
+	// internally calculated
+	char** gcc_opts_list;
+	char* gcc_opts_flat;
+	char* gcc_include;
+	char* gcc_libs;
+	
+	char* build_dir; // full build path, including debug/release options
+	char* build_subdir;
+} objfile;
+
+
+
+
+
 /* -END- header.c ----- */
 /* ----- string.c ----- */
 
@@ -1023,6 +1061,161 @@ char* read_whole_file(char* path, size_t* srcLen) {
 
 
 
+/* ----- pkgconfig.c ----- */
+
+
+char* pkg_config(char** packages, char* opts) {
+	char* tmp;
+	
+	int num_pkgs = list_len(packages);
+	if(num_pkgs == 0) return strdup("");
+	
+	char* pkgs = join_str_list(packages, " ");
+	
+	for(char* c = opts; *c; c++) {
+		switch(*c) {
+			case 'c':
+			case 'C':
+			case 'i':
+			case 'I':
+				tmp = strjoin(" ", "--cflags", pkgs);
+				free(pkgs);
+				pkgs = tmp;
+				break;
+				
+			case 'l':
+			case 'L':
+				tmp = strjoin(" ", "--libs", pkgs);
+				free(pkgs);
+				pkgs = tmp;
+				break;
+		}
+	} 	
+	
+	tmp = strjoin(" ", "pkg-config", pkgs);
+	free(pkgs);
+	
+	FILE* f = popen(tmp, "r");
+	free(tmp);
+	if(!f) {
+		fprintf(stderr, "Could not run command '%s'\n", tmp);
+		exit(1);
+		return NULL;
+	}
+	
+	int len = 2048;
+	int fill = 0;
+	char* buffer = malloc(len * sizeof(*buffer));
+	while(!feof(f)) {
+		if(fill + 1 >= len) {
+			len *= 2;
+			buffer = realloc(buffer, len * sizeof(*buffer));
+		} 
+		fill += fread(buffer + fill, 1, len - fill - 1, f); 
+	}
+	
+	buffer[fill] = 0;
+	pclose(f);
+		
+	// strip out newlines and other garbage
+	for(char* c = buffer; *c; c++) if(isspace(*c)) *c = ' ';
+	
+	return buffer;
+}
+
+
+/* -END- pkgconfig.c ----- */
+
+
+
+
+
+
+
+
+void parse_cli_opts(int argc, char** argv, objfile* obj) {
+
+	for(int a = 1; a < argc; a++) {
+		if(argv[a][0] == '-') {
+			for(int i = 0; argv[a][i]; i++) {
+				
+				switch(argv[a][i]) {
+					case 'd': // debug: -ggdb
+						obj->mode_debug = 1;
+						if(obj->mode_release == 1) {
+							fprintf(stderr, "Debug and Release set at the same time.\n");
+						}
+						break;
+						
+					case 'p': // profiling: -pg
+						obj->mode_profiling = 1;
+						break;
+						
+					case 'r': // release: -O3
+						obj->mode_release = 1;
+						obj->mode_debug = 0;
+						break;
+						
+					case 'c': // clean
+						obj->clean_first = 1;
+						break;
+						
+					case 'v': // verbose
+						obj->verbose = 1;
+						break;
+				}
+			}		
+		}
+	
+	}
+	
+	
+}
+
+
+void start_obj(objfile* obj) {
+
+	unlink(obj->exe_path);
+	
+	obj->build_subdir = calloc(1, 20);
+	
+	if(obj->mode_debug) strcat(obj->build_subdir, "d");
+	if(obj->mode_profiling) strcat(obj->build_subdir, "p");
+	if(obj->mode_release) strcat(obj->build_subdir, "r");
+
+	obj->build_dir = path_join(obj->base_build_dir, obj->build_subdir);
+	
+	// delete old build files if needed 
+	if(obj->clean_first) {
+		printf("Cleaning directory %s/\n", obj->build_dir);
+		system(sprintfdup("rm -rf %s/*", obj->build_dir));
+	}
+	
+	// ensure the build dir exists
+	mkdirp_cached(obj->build_dir, 0755);
+	
+	
+	// flatten all the gcc options
+	obj->gcc_opts_list = concat_lists(obj->ld_add, obj->common_cflags);
+	
+	if(obj->mode_debug) obj->gcc_opts_list = concat_lists(obj->gcc_opts_list, obj->debug_cflags);
+	if(obj->mode_profiling) obj->gcc_opts_list = concat_lists(obj->gcc_opts_list, obj->profiling_cflags);
+	if(obj->mode_release) obj->gcc_opts_list = concat_lists(obj->gcc_opts_list, obj->release_cflags);
+	
+	obj->gcc_opts_flat = join_str_list(obj->gcc_opts_list, " ");
+	obj->gcc_include = pkg_config(obj->lib_headers_needed, "I");
+	obj->gcc_libs = pkg_config(obj->libs_needed, "L");
+	
+	char* tmp = obj->gcc_opts_flat;
+	obj->gcc_opts_flat = strjoin(" ", obj->gcc_opts_flat, obj->gcc_include);
+	free(tmp);
+	
+}
+
+
+
+
+
 /* ----- cprocs.c ----- */
 
 struct child_process_info {
@@ -1248,70 +1441,6 @@ struct child_process_info* exec_process_pipe(char* exec_path, char* args[]) {
 
 
 
-/* ----- pkgconfig.c ----- */
-
-
-char* pkg_config(char** packages, char* opts) {
-	char* tmp;
-	
-	char* pkgs = join_str_list(packages, " ");
-	
-	for(char* c = opts; *c; c++) {
-		switch(*c) {
-			case 'c':
-			case 'C':
-			case 'i':
-			case 'I':
-				tmp = strjoin(" ", "--cflags", pkgs);
-				free(pkgs);
-				pkgs = tmp;
-				break;
-				
-			case 'l':
-			case 'L':
-				tmp = strjoin(" ", "--libs", pkgs);
-				free(pkgs);
-				pkgs = tmp;
-				break;
-		}
-	} 	
-	
-	tmp = strjoin(" ", "pkg-config", pkgs);
-	free(pkgs);
-	
-	FILE* f = popen(tmp, "r");
-	free(tmp);
-	if(!f) {
-		fprintf(stderr, "Could not run command '%s'\n", tmp);
-		exit(1);
-		return NULL;
-	}
-	
-	int len = 2048;
-	int fill = 0;
-	char* buffer = malloc(len * sizeof(*buffer));
-	while(!feof(f)) {
-		if(fill + 1 >= len) {
-			len *= 2;
-			buffer = realloc(buffer, len * sizeof(*buffer));
-		} 
-		fill += fread(buffer + fill, 1, len - fill - 1, f); 
-	}
-	
-	buffer[fill] = 0;
-	pclose(f);
-		
-	// strip out newlines and other garbage
-	for(char* c = buffer; *c; c++) if(isspace(*c)) *c = ' ';
-	
-	return buffer;
-}
-
-
-/* -END- pkgconfig.c ----- */
-
-
-
 /* ----- rglob.c ----- */
 
 typedef struct rglob_entry {
@@ -1443,7 +1572,7 @@ strlist* parse_gcc_dep_file(char* dep_file_path, time_t* newest_mtime) {
 	return dep_list;
 }
 
-int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime) {
+int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime, objfile* obj) {
 	time_t dep_mtime = 0;
 	time_t newest_mtime = 0;
 	
@@ -1451,7 +1580,7 @@ int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime)
 	if(dep_mtime < src_mtime) {
 		//gcc -MM -MG -MT $1 -MF "build/$1.d" $1 $CFLAGS $LDADD
 //		printf("  generating deps\n"); 
-		char* cmd = sprintfdup("gcc -MM -MG -MT '' -MF %s %s %s", dep_path, src_path, g_gcc_opts_flat);
+		char* cmd = sprintfdup("gcc -MM -MG -MT '' -MF %s %s %s", dep_path, src_path, obj->gcc_opts_flat);
 		system(cmd);
 		free(cmd);
 	}

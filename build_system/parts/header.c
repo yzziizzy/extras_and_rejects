@@ -50,4 +50,42 @@ char* g_gcc_libs;
 
 int g_nprocs;
 
+
+typedef struct {
+	// user config
+	char** sources;
+
+	char** debug_cflags;
+	char** release_cflags;
+	char** profiling_cflags;
+	char** common_cflags;
+	char** libs_needed;
+	char** lib_headers_needed;
+	char** ld_add;
+	
+	char* source_dir;// "src"
+	char* exe_path; // the executable name
+	char* base_build_dir; //  = "build";
+	
+	char mode_debug;
+	char mode_profiling;
+	char mode_release;
+	char clean_first;
+	
+	char verbose;
+	
+	// internally calculated
+	char** gcc_opts_list;
+	char* gcc_opts_flat;
+	char* gcc_include;
+	char* gcc_libs;
+	
+	char* build_dir; // full build path, including debug/release options
+	char* build_subdir;
+} objfile;
+
+
+
+
+
 /* -END- header.c ----- */

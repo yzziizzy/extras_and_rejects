@@ -5,6 +5,9 @@
 char* pkg_config(char** packages, char* opts) {
 	char* tmp;
 	
+	int num_pkgs = list_len(packages);
+	if(num_pkgs == 0) return strdup("");
+	
 	char* pkgs = join_str_list(packages, " ");
 	
 	for(char* c = opts; *c; c++) {

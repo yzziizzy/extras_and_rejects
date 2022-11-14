@@ -81,7 +81,7 @@ strlist* parse_gcc_dep_file(char* dep_file_path, time_t* newest_mtime) {
 	return dep_list;
 }
 
-int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime) {
+int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime, objfile* obj) {
 	time_t dep_mtime = 0;
 	time_t newest_mtime = 0;
 	
@@ -89,7 +89,7 @@ int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime)
 	if(dep_mtime < src_mtime) {
 		//gcc -MM -MG -MT $1 -MF "build/$1.d" $1 $CFLAGS $LDADD
 //		printf("  generating deps\n"); 
-		char* cmd = sprintfdup("gcc -MM -MG -MT '' -MF %s %s %s", dep_path, src_path, g_gcc_opts_flat);
+		char* cmd = sprintfdup("gcc -MM -MG -MT '' -MF %s %s %s", dep_path, src_path, obj->gcc_opts_flat);
 		system(cmd);
 		free(cmd);
 	}
