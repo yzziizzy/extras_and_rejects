@@ -3,8 +3,10 @@
 #include <ctype.h>
 
 
-
 #include "sti/sti.h"
+
+#include "tree.h"
+
 
 #define double float
 
@@ -42,6 +44,10 @@ typedef struct {
 	double quads_totals[26][26][26];
 	double quints[26][26][26][26][26];
 	double quints_totals[26][26][26][26];
+	
+	seqtree* prefix;
+	seqtree* internal;
+	seqtree* suffix;
 } letter_stats;
 
 
@@ -190,11 +196,32 @@ int main(int argc, char* argv[]) {
 	
 	letter_stats* ls = calloc(1, sizeof(*ls));
 //	memset(&ls, 0, sizeof(ls));
-
+	
+	
+	ls->prefix = calloc(1, sizeof(*ls->prefix));
+	ls->internal = calloc(1, sizeof(*ls->internal));
+	ls->suffix = calloc(1, sizeof(*ls->suffix));
+	
 
 	HT_EACH(&m_stats, name, namestats*, st) {
 //		if(st->cnt == 1337 || st->cnt == 31337 || st->cnt == 42069) printf("%s: %ld\n", st->name, st->cnt);
 		
+		long l = strlen(st->name);
+		
+		FOR(i, l) {
+			sq_insert_seq(ls->prefix, st->name, i + 1, st->cnt);
+			
+			FOR(n, l - i) {
+				sq_insert_seq(ls->internal, st->name + i, n + 1, st->cnt);
+			}
+			
+			if(l >= 4) {
+				sq_insert_seq(ls->suffix, st->name + l - 4, 4, st->cnt);
+			}
+		}
+		
+		
+		/*
 		for(char* s = st->name; s[0] && s[1]; s++) {
 			ls->pairs[s[0] - 'a'][s[1] - 'a'] += st->cnt;
 			ls->pairs_totals[s[0] - 'a'] += st->cnt;
@@ -220,9 +247,9 @@ int main(int argc, char* argv[]) {
 			ls->positions[i][st->name[i] - 'a'] += st->cnt;
 			ls->positions_totals[i] += st->cnt;
 		}
+		*/
 		
 		
-		long l = strlen(st->name);
 		ls->lengths[l] += st->cnt;
 		ls->total += st->cnt;
 		
@@ -230,8 +257,12 @@ int main(int argc, char* argv[]) {
 //		maxlen = fmax(strlen(st->name), maxlen);
 	}
 	
-//	double inv_pairs = 1.0 / total_pairs;
+	sq_total_and_invert(ls->prefix);
+	sq_total_and_invert(ls->internal);
+	sq_total_and_invert(ls->suffix);
 	
+//	double inv_pairs = 1.0 / total_pairs;
+	/*
 	double inv_total = 1.0 / ls->total;
 	
 	for(int i = 0; i < 15; i++) {
@@ -274,8 +305,9 @@ int main(int argc, char* argv[]) {
 	}
 	
 	printf("full/empty: %d, %d (%.2f%%)\n\n", full_q, empty_q, (full_q * 100. / empty_q));
+	*/
 	
-	
+	/*
 	FOR(x, 20) {
 	
 		double genlen_p = nrand();
@@ -327,6 +359,48 @@ int main(int argc, char* argv[]) {
 	}
 
 	printf("\nmemory used: %ld mb\n", sizeof(*ls) / (1024*1024));
+	*/
+	
+//	sq_print_tree(ls->suffix, 0);
+	
+	FOR(x, 20) {
+		
+		char name[15];
+		
+		name[0] = sq_sample(ls->prefix);
+		printf("%c", name[0] + 'A' - 'a');
+		
+		name[1] = sq_sample_depth(ls->prefix, name, 1);
+		printf("%c", name[1]);
+		
+		for(int i = 2; i < 12; i++) {
+			
+			int n = fmin(i, 3);
+			
+			name[i] = sq_sample_depth(ls->internal, name + i - n, n);
+			if(name[i] < 0) {
+				printf(" -");
+				break;
+			}
+			
+			if(i >= 4) {
+				float quit_chance = sq_prob_depth(ls->suffix, name + i - 4, 4);
+				if(quit_chance >  frandNorm() * 3.6 * (i / 15.)) {
+					printf(" + %f", quit_chance);
+					break;
+				}
+			}
+			printf("%c", name[i]);
+		}
+		
+		
+		printf("\n");
+	}
+	
+	printf("\n");	
+	printf("prefix memory used: %ld mb\n", sq_memstats(ls->prefix) / (1024*1024));
+	printf("internal memory used: %ld mb\n", sq_memstats(ls->internal) / (1024*1024));
+	printf("suffix memory used: %ld kb\n", sq_memstats(ls->suffix) / (1*1024));
 }
 
 
