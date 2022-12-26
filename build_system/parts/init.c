@@ -44,9 +44,10 @@ void parse_cli_opts(int argc, char** argv, objfile* obj) {
 }
 
 
+char* default_compile_source(char* src_path, char* obj_path, objfile* obj);
+
 void start_obj(objfile* obj) {
 
-	unlink(obj->exe_path);
 	
 	obj->build_subdir = calloc(1, 20);
 	
@@ -55,6 +56,14 @@ void start_obj(objfile* obj) {
 	if(obj->mode_release) strcat(obj->build_subdir, "r");
 
 	obj->build_dir = path_join(obj->base_build_dir, obj->build_subdir);
+	
+	if(!obj->archive_path) {
+		obj->archive_path = path_join(obj->build_dir, "tmp.a");
+	}
+	
+	// clean up old executables
+	unlink(obj->exe_path);
+	unlink(obj->archive_path);
 	
 	// delete old build files if needed 
 	if(obj->clean_first) {
@@ -81,6 +90,11 @@ void start_obj(objfile* obj) {
 	obj->gcc_opts_flat = strjoin(" ", obj->gcc_opts_flat, obj->gcc_include);
 	free(tmp);
 	
+	// initialze the object file list
+	strlist_init(&obj->objs);
+	strlist_init(&obj->compile_cache);
+	
+	if(!obj->compile_source_cmd) obj->compile_source_cmd = default_compile_source;	
 }
 
 

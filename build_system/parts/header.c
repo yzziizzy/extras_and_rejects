@@ -1,9 +1,9 @@
 
 /* ----- header.c ----- */
 
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
+//#include <string.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -35,12 +35,7 @@
 #define PP_NARG_(...) PP_ARG_N(__VA_ARGS__)
 #define PP_NARG(...)  PP_NARG_(__VA_ARGS__, PP_RSEQ_N())
 
-#define check_alloc(x) \
-	if((x)->len + 1 >= (x)->alloc) { \
-		(x)->alloc *= 2; \
-		(x)->entries = realloc((x)->entries, (x)->alloc * sizeof(*(x)->entries)); \
-	}
-	
+
 
 
 char** g_gcc_opts_list;
@@ -50,8 +45,9 @@ char* g_gcc_libs;
 
 int g_nprocs;
 
+struct strlist;
 
-typedef struct {
+typedef struct objfile {
 	// user config
 	char** sources;
 
@@ -66,6 +62,9 @@ typedef struct {
 	char* source_dir;// "src"
 	char* exe_path; // the executable name
 	char* base_build_dir; //  = "build";
+	
+	// returns a dup'd string with the full, raw command to execute
+	char* (*compile_source_cmd)(char* src_path, char* obj_path, struct objfile* obj);
 	
 	char mode_debug;
 	char mode_profiling;
@@ -82,6 +81,11 @@ typedef struct {
 	
 	char* build_dir; // full build path, including debug/release options
 	char* build_subdir;
+	
+	strlist objs; // .o's to be created
+	strlist compile_cache; // list of compile commands to run
+	
+	char* archive_path; // temporary .a during build process
 } objfile;
 
 

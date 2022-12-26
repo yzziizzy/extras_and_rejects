@@ -2,36 +2,6 @@
 /* ----- gcc.c ----- */
 
 
-strlist compile_cache;
-
-
-
-
-
-int compile_cache_execute() {
-	int ret = 0;
-	struct child_process_info** cpis;
-//	printf("compile cache length %d", compile_cache.len);
-
-	ret = execute_mt(&compile_cache, g_nprocs, "Compiling...              %s", &cpis);
-	
-	if(ret) {
-		for(int i = 0; i < compile_cache.len; i++ ) {
-			if(cpis[i]->exit_status) {
-				printf("%.*s\n", (int)cpis[i]->buf_len, cpis[i]->output_buffer);
-			}
-		}
-	
-	}
-	
-	// TODO free compile cache
-	// TODO free cpis
-
-	return ret;
-}
-
-
-
 strlist* parse_gcc_dep_file(char* dep_file_path, time_t* newest_mtime) {
 	size_t dep_src_len = 0;
 	strlist* dep_list;
@@ -81,6 +51,7 @@ strlist* parse_gcc_dep_file(char* dep_file_path, time_t* newest_mtime) {
 	return dep_list;
 }
 
+
 int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime, objfile* obj) {
 	time_t dep_mtime = 0;
 	time_t newest_mtime = 0;
@@ -102,6 +73,77 @@ int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime,
 FAIL:
 	return 0;
 }
+
+
+
+char* default_compile_source(char* src_path, char* obj_path, objfile* obj) {
+	char* cmd = sprintfdup("gcc -c -o %s %s %s", obj_path, src_path, obj->gcc_opts_flat);
+	if(obj->verbose) puts(cmd);
+	return cmd;
+}
+
+
+void check_source(char* raw_src_path, objfile* o) {
+	time_t src_mtime, obj_mtime = 0, dep_mtime = 0;
+	
+	char* src_path = resolve_path(raw_src_path, &src_mtime);
+	char* src_dir = dir_name(raw_src_path);
+	char* base = base_name(src_path);
+	
+//	char* build_base = "debug";
+	char* src_build_dir = path_join(o->build_dir, src_dir);
+	char* obj_path = path_join(src_build_dir, base);
+	
+	// cheap and dirty
+	size_t olen = strlen(obj_path);
+	obj_path[olen-1] = 'o';
+	
+	
+	strlist_push(&o->objs, obj_path);
+	
+	char* dep_path = strcatdup(src_build_dir, "/", base, ".d");
+	
+	mkdirp_cached(src_build_dir, 0755);
+	
+	char* real_obj_path = resolve_path(obj_path, &obj_mtime);
+	if(obj_mtime < src_mtime) {
+		strlist_push(&o->compile_cache, o->compile_source_cmd(src_path, real_obj_path, o));
+		return;
+	}
+	
+	
+	if(gen_deps(src_path, dep_path, src_mtime, obj_mtime, o)) {
+		strlist_push(&o->compile_cache, o->compile_source_cmd(src_path, real_obj_path, o));
+	}
+	
+	//gcc -c -o $2 $1 $CFLAGS $LDADD
+}
+
+
+
+int compile_cache_execute(objfile* o) {
+	int ret = 0;
+	struct child_process_info** cpis;
+//	printf("compile cache length %d", compile_cache.len);
+
+	ret = execute_mt(&o->compile_cache, g_nprocs, "Compiling...              %s", &cpis);
+	
+	if(ret) {
+		for(int i = 0; i < o->compile_cache.len; i++ ) {
+			if(cpis[i]->exit_status) {
+				printf("%.*s\n", (int)cpis[i]->buf_len, cpis[i]->output_buffer);
+			}
+		}
+	
+	}
+	
+	// TODO free compile cache
+	// TODO free cpis
+
+	return ret;
+}
+
+
 
 
 /* -END- gcc.c ----- */

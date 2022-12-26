@@ -3,11 +3,10 @@
 
 rm ../_build.inc.c
 
-cat header.c \
+cat strlist.c header.c \
 	string.c \
 	strcache.c \
 	hash.c \
-	strlist.c \
 	fs.c \
 	pkgconfig.c \
 	init.c \

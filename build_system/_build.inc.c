@@ -1,9 +1,51 @@
+/* ----- strlist.c ----- */
+
+#include <string.h>
+#include <stdlib.h>
+
+#define check_alloc(x) \
+	if((x)->len + 1 >= (x)->alloc) { \
+		(x)->alloc *= 2; \
+		(x)->entries = realloc((x)->entries, (x)->alloc * sizeof(*(x)->entries)); \
+	}
+	
+
+
+typedef struct strlist {
+	int len;
+	int alloc;
+	char** entries;
+} strlist;
+
+
+
+void strlist_init(strlist* sl) {
+	sl->len = 0;
+	sl->alloc = 32;
+	sl->entries = malloc(sl->alloc * sizeof(*sl->entries));
+}
+
+strlist* strlist_new() {
+	strlist* sl = malloc(sizeof(*sl));
+	strlist_init(sl);
+	return sl;
+}
+
+void strlist_push(strlist* sl, char* e) {
+	check_alloc(sl);
+	sl->entries[sl->len++] = e;
+	sl->entries[sl->len] = 0;
+}
+
+
+/* -END- strlist.c ----- */
+
 
 /* ----- header.c ----- */
 
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
+//#include <string.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -35,12 +77,7 @@
 #define PP_NARG_(...) PP_ARG_N(__VA_ARGS__)
 #define PP_NARG(...)  PP_NARG_(__VA_ARGS__, PP_RSEQ_N())
 
-#define check_alloc(x) \
-	if((x)->len + 1 >= (x)->alloc) { \
-		(x)->alloc *= 2; \
-		(x)->entries = realloc((x)->entries, (x)->alloc * sizeof(*(x)->entries)); \
-	}
-	
+
 
 
 char** g_gcc_opts_list;
@@ -50,8 +87,9 @@ char* g_gcc_libs;
 
 int g_nprocs;
 
+struct strlist;
 
-typedef struct {
+typedef struct objfile {
 	// user config
 	char** sources;
 
@@ -66,6 +104,9 @@ typedef struct {
 	char* source_dir;// "src"
 	char* exe_path; // the executable name
 	char* base_build_dir; //  = "build";
+	
+	// returns a dup'd string with the full, raw command to execute
+	char* (*compile_source_cmd)(char* src_path, char* obj_path, struct objfile* obj);
 	
 	char mode_debug;
 	char mode_profiling;
@@ -82,6 +123,11 @@ typedef struct {
 	
 	char* build_dir; // full build path, including debug/release options
 	char* build_subdir;
+	
+	strlist objs; // .o's to be created
+	strlist compile_cache; // list of compile commands to run
+	
+	char* archive_path; // temporary .a during build process
 } objfile;
 
 
@@ -690,37 +736,6 @@ void* hash_find(hashtable* ht, char* key) {
 /* -END- hash.c ----- */
 
 
-/* ----- strlist.c ----- */
-
-typedef struct strlist {
-	int len;
-	int alloc;
-	char** entries;
-} strlist;
-
-
-
-void strlist_init(strlist* sl) {
-	sl->len = 0;
-	sl->alloc = 32;
-	sl->entries = malloc(sl->alloc * sizeof(*sl->entries));
-}
-
-strlist* strlist_new() {
-	strlist* sl = malloc(sizeof(*sl));
-	strlist_init(sl);
-	return sl;
-}
-
-void strlist_push(strlist* sl, char* e) {
-	check_alloc(sl);
-	sl->entries[sl->len++] = e;
-	sl->entries[sl->len] = 0;
-}
-
-
-/* -END- strlist.c ----- */
-
 
 /* ----- fs.c ----- */
 
@@ -1173,9 +1188,10 @@ void parse_cli_opts(int argc, char** argv, objfile* obj) {
 }
 
 
+char* default_compile_source(char* src_path, char* obj_path, objfile* obj);
+
 void start_obj(objfile* obj) {
 
-	unlink(obj->exe_path);
 	
 	obj->build_subdir = calloc(1, 20);
 	
@@ -1184,6 +1200,14 @@ void start_obj(objfile* obj) {
 	if(obj->mode_release) strcat(obj->build_subdir, "r");
 
 	obj->build_dir = path_join(obj->base_build_dir, obj->build_subdir);
+	
+	if(!obj->archive_path) {
+		obj->archive_path = path_join(obj->build_dir, "tmp.a");
+	}
+	
+	// clean up old executables
+	unlink(obj->exe_path);
+	unlink(obj->archive_path);
 	
 	// delete old build files if needed 
 	if(obj->clean_first) {
@@ -1210,6 +1234,11 @@ void start_obj(objfile* obj) {
 	obj->gcc_opts_flat = strjoin(" ", obj->gcc_opts_flat, obj->gcc_include);
 	free(tmp);
 	
+	// initialze the object file list
+	strlist_init(&obj->objs);
+	strlist_init(&obj->compile_cache);
+	
+	if(!obj->compile_source_cmd) obj->compile_source_cmd = default_compile_source;	
 }
 
 
@@ -1236,9 +1265,41 @@ struct child_process_info {
 };
 
 
+struct job {
+	int type; // c = child process, f = function
+	volatile int state;
+	
+	union {
+		int (*fn)(void*);
+		char* cmd;
+	};
+	union {
+		struct child_process_info* cpi;
+		void* user_data;
+	};
+};
+
+
 struct child_process_info* exec_cmdline_pipe(char* cmdline);
 struct child_process_info* exec_process_pipe(char* exec_path, char* args[]);
 
+
+
+void free_cpi(struct child_process_info* cpi) {
+	if(cpi->output_buffer) free(cpi->output_buffer);
+	
+	if(cpi->f_stdin) fclose(cpi->f_stdin);
+	if(cpi->f_stdout) fclose(cpi->f_stdout);
+	if(cpi->f_stderr) fclose(cpi->f_stderr);
+	
+	if(cpi->child_stdin) close(cpi->child_stdin);
+	if(cpi->child_stdout) close(cpi->child_stdout);
+	if(cpi->child_stderr) close(cpi->child_stderr);
+	
+	if(cpi->pty) close(cpi->pty);
+	
+	free(cpi);
+}
 
 
 void read_cpi(struct child_process_info* cpi) {
@@ -1493,36 +1554,6 @@ void recursive_glob(char* base_path, char* pattern, int flags, rglob* results) {
 /* ----- gcc.c ----- */
 
 
-strlist compile_cache;
-
-
-
-
-
-int compile_cache_execute() {
-	int ret = 0;
-	struct child_process_info** cpis;
-//	printf("compile cache length %d", compile_cache.len);
-
-	ret = execute_mt(&compile_cache, g_nprocs, "Compiling...              %s", &cpis);
-	
-	if(ret) {
-		for(int i = 0; i < compile_cache.len; i++ ) {
-			if(cpis[i]->exit_status) {
-				printf("%.*s\n", (int)cpis[i]->buf_len, cpis[i]->output_buffer);
-			}
-		}
-	
-	}
-	
-	// TODO free compile cache
-	// TODO free cpis
-
-	return ret;
-}
-
-
-
 strlist* parse_gcc_dep_file(char* dep_file_path, time_t* newest_mtime) {
 	size_t dep_src_len = 0;
 	strlist* dep_list;
@@ -1572,6 +1603,7 @@ strlist* parse_gcc_dep_file(char* dep_file_path, time_t* newest_mtime) {
 	return dep_list;
 }
 
+
 int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime, objfile* obj) {
 	time_t dep_mtime = 0;
 	time_t newest_mtime = 0;
@@ -1593,6 +1625,77 @@ int gen_deps(char* src_path, char* dep_path, time_t src_mtime, time_t obj_mtime,
 FAIL:
 	return 0;
 }
+
+
+
+char* default_compile_source(char* src_path, char* obj_path, objfile* obj) {
+	char* cmd = sprintfdup("gcc -c -o %s %s %s", obj_path, src_path, obj->gcc_opts_flat);
+	if(obj->verbose) puts(cmd);
+	return cmd;
+}
+
+
+void check_source(char* raw_src_path, objfile* o) {
+	time_t src_mtime, obj_mtime = 0, dep_mtime = 0;
+	
+	char* src_path = resolve_path(raw_src_path, &src_mtime);
+	char* src_dir = dir_name(raw_src_path);
+	char* base = base_name(src_path);
+	
+//	char* build_base = "debug";
+	char* src_build_dir = path_join(o->build_dir, src_dir);
+	char* obj_path = path_join(src_build_dir, base);
+	
+	// cheap and dirty
+	size_t olen = strlen(obj_path);
+	obj_path[olen-1] = 'o';
+	
+	
+	strlist_push(&o->objs, obj_path);
+	
+	char* dep_path = strcatdup(src_build_dir, "/", base, ".d");
+	
+	mkdirp_cached(src_build_dir, 0755);
+	
+	char* real_obj_path = resolve_path(obj_path, &obj_mtime);
+	if(obj_mtime < src_mtime) {
+		strlist_push(&o->compile_cache, o->compile_source_cmd(src_path, real_obj_path, o));
+		return;
+	}
+	
+	
+	if(gen_deps(src_path, dep_path, src_mtime, obj_mtime, o)) {
+		strlist_push(&o->compile_cache, o->compile_source_cmd(src_path, real_obj_path, o));
+	}
+	
+	//gcc -c -o $2 $1 $CFLAGS $LDADD
+}
+
+
+
+int compile_cache_execute(objfile* o) {
+	int ret = 0;
+	struct child_process_info** cpis;
+//	printf("compile cache length %d", compile_cache.len);
+
+	ret = execute_mt(&o->compile_cache, g_nprocs, "Compiling...              %s", &cpis);
+	
+	if(ret) {
+		for(int i = 0; i < o->compile_cache.len; i++ ) {
+			if(cpis[i]->exit_status) {
+				printf("%.*s\n", (int)cpis[i]->buf_len, cpis[i]->output_buffer);
+			}
+		}
+	
+	}
+	
+	// TODO free compile cache
+	// TODO free cpis
+
+	return ret;
+}
+
+
 
 
 /* -END- gcc.c ----- */

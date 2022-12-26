@@ -19,9 +19,41 @@ struct child_process_info {
 };
 
 
+struct job {
+	int type; // c = child process, f = function
+	volatile int state;
+	
+	union {
+		int (*fn)(void*);
+		char* cmd;
+	};
+	union {
+		struct child_process_info* cpi;
+		void* user_data;
+	};
+};
+
+
 struct child_process_info* exec_cmdline_pipe(char* cmdline);
 struct child_process_info* exec_process_pipe(char* exec_path, char* args[]);
 
+
+
+void free_cpi(struct child_process_info* cpi) {
+	if(cpi->output_buffer) free(cpi->output_buffer);
+	
+	if(cpi->f_stdin) fclose(cpi->f_stdin);
+	if(cpi->f_stdout) fclose(cpi->f_stdout);
+	if(cpi->f_stderr) fclose(cpi->f_stderr);
+	
+	if(cpi->child_stdin) close(cpi->child_stdin);
+	if(cpi->child_stdout) close(cpi->child_stdout);
+	if(cpi->child_stderr) close(cpi->child_stderr);
+	
+	if(cpi->pty) close(cpi->pty);
+	
+	free(cpi);
+}
 
 
 void read_cpi(struct child_process_info* cpi) {
