@@ -1,0 +1,5 @@
+cvm
+.gpuedit.session
+build/
+._build
+src/sti
