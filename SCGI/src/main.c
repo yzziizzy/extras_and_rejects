@@ -101,12 +101,12 @@ server_t* server_init(int epollfd, int port) {
 }
 
 
-void server_tick(server_t* srv) {
+void server_tick(server_t* srv, int wait) {
 
 	struct epoll_event ee = {0};
 //	printf("epoll waiting\n");
 	
-	int ret = epoll_wait(srv->epollfd, &ee, 1, 0); 
+	int ret = epoll_wait(srv->epollfd, &ee, 1, wait); 
 	
 	if(ret == -1) {
 		fatal("epoll error\n");
@@ -171,11 +171,23 @@ void server_tick(server_t* srv) {
 }
 
 
+void connection_close(connection_t* con) {
+	struct epoll_event ee = {0};
+	epoll_ctl(con->srv->epollfd, EPOLL_CTL_DEL, con->peerfd, &ee);
+				
+	close(con->peerfd);
+	
+	VEC_RM_VAL(&con->srv->cons, con);
+	
+	free(con);
+}
+
 
 enum {
 	REQST_START,
 	REQST_GOT_LEN,
 	REQST_PARSE_HEADERS,
+	REQST_GET_CONTENT,
 	REQST_RESPOND,
 };
 
@@ -198,6 +210,7 @@ typedef struct {
 	char* content_start;
 	
 	long content_len;
+	long total_len;
 	
 	VEC(req_header) headers;
 	
@@ -241,13 +254,11 @@ void on_data(connection_t* con) {
 	while(1) {
 		switch(req->state) {
 			case REQST_START:
-				printf("start\n");
 				// look for the netstring encoding of the SCGI header length
 				len = req->buf_alloc - req->buf_remain;
 				
 				char* colon = strnchr(req->buf, ':', len);
 				if(!colon) {
-					printf("no colon\n");
 					return; // not enough data, somehow...
 				}
 				
@@ -255,15 +266,12 @@ void on_data(connection_t* con) {
 				req->header_len = req->header_netstring_len - (colon - req->buf) - 1; // minus 1 for the trailing netstring comma
 				req->header_offset = (colon - req->buf) + 1;
 				
-				printf("  nslen: %d\n", req->header_netstring_len);
-				
 				req->state = REQST_GOT_LEN;
 				break;
 			
 			case REQST_GOT_LEN:
 				// wait for all of the headers to arrive
 				len = req->buf_alloc - req->buf_remain;
-				printf("gotlen %d, %ld\n", len, req->buf_remain);
 				
 				if(len >= req->header_netstring_len) {
 					req->state = REQST_PARSE_HEADERS;
@@ -272,7 +280,7 @@ void on_data(connection_t* con) {
 				return;
 			
 			case REQST_PARSE_HEADERS: {
-				printf("parse headers\n");
+				
 				char* s = req->buf + req->header_offset;
 				char* header_end = req->buf + req->header_netstring_len - 1; // minus one for the comma
 				req->content_start = header_end + 1;
@@ -291,6 +299,7 @@ void on_data(connection_t* con) {
 					
 					if(0 == strcasecmp(header->key, "CONTENT_LENGTH")) {
 						req->content_len = header->numval;
+						req->total_len = req->content_len + req->header_netstring_len;
 					}
 					
 					printf("Header: %s = %s\n", header->key, header->value);
@@ -300,15 +309,21 @@ void on_data(connection_t* con) {
 				break;
 			}
 			
+			case REQST_GET_CONTENT:
+				len = req->buf_alloc - req->buf_remain;
+				if(len >= req->total_len) {
+					req->state = REQST_RESPOND;
+					break;
+				}
+				return;
+			
 			case REQST_RESPOND: {
 				char* resp = "Status: 200 OK\r\nContent-Type: text/plain\r\n\r\nFoobar\r\n";
 				
 				send(con->peerfd, resp, strlen(resp), 0);
 				
-				struct epoll_event ee = {0};
-				epoll_ctl(con->srv->epollfd, EPOLL_CTL_DEL, con->peerfd, &ee);
+				connection_close(con);
 				
-				close(con->peerfd);
 				return;
 			}
 		}
@@ -329,9 +344,9 @@ int main(int argc, char* argv[]) {
 	
 	while(1) {
 		
-		server_tick(srv);
+		server_tick(srv, 100);
 		
-		sleep(1);
+//		sleep(1);
 	}
 
 
