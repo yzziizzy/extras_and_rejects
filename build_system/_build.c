@@ -2,10 +2,10 @@
 
 // link with -lutil
 
-char* build_dir;
-char* source_dir = "./"; // "src"
-char* exe_path = "hworld";
-char* base_build_dir = "build";
+//char* build_dir;
+//char* source_dir = "__SED_TOKEN_SOURCE_PATH"; // "src"
+//char* exe_path = "__SED_TOKEN_EXE_PATH__SED_TOKEN_EXE_NAME";
+//char* base_build_dir = "__SED_TOKEN_BUILD_PATH";
 
 
 #include "_build.inc.c"
@@ -13,7 +13,7 @@ char* base_build_dir = "build";
 
 
 char* sources[] = {
-	"test.c",
+	"__SED_TOKEN_CODE_NAME",
 	NULL,
 };
 
@@ -134,9 +134,9 @@ int main(int argc, char* argv[]) {
 	
 	obj->mode_debug = 2;
 	
-	obj->exe_path = "hworld";
-	obj->source_dir = "./"; // "src"
-	obj->base_build_dir = "build";
+	obj->exe_path = "__SED_TOKEN_EXE_PATH__SED_TOKEN_EXE_NAME";
+	obj->source_dir = "__SED_TOKEN_SOURCE_PATH";
+	obj->base_build_dir = "__SED_TOKEN_BUILD_PATH";
 	
 	obj->sources = sources;
 	
