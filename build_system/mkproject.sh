@@ -12,8 +12,7 @@ function yes_no() {
 }
 
 
-# there is a better version of this somewhere 
-here="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+here=$( dirname $( realpath "${BASH_SOURCE[-1]}" ) )
 echo "we are here <$here>"
 
 sed_files=( _build.c _build.inc.c build.sh debug.sh profiling.sh valgrind.sh valgrind valgrind_noleaks.sh valgrind_nosuppress.sh )
