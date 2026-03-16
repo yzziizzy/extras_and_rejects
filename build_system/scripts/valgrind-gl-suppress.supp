@@ -1,0 +1,135 @@
+
+{
+   video drivers
+   Memcheck:Addr4
+   ...
+   obj:/usr/lib*/dri/i965_dri.so
+   ...
+}
+{
+   video drivers
+   Memcheck:Addr8    
+   ...
+   obj:/usr/lib*/dri/i965_dri.so
+   ...
+}  
+{
+   video drivers
+   Memcheck:Addr2    
+   ...
+   obj:/usr/lib*/dri/i965_dri.so
+   ...
+}
+
+{
+   video drivers
+   Memcheck:Cond
+   ...
+   obj:/usr/lib*/libnvidia-glcore.so*
+   ...
+}
+{
+   video drivers
+   Memcheck:Value8
+   ...
+   obj:/usr/lib*/libnvidia-glcore.so*
+   ...
+}
+{
+   video drivers
+   Memcheck:Value4
+   ...
+   obj:/usr/lib*/libnvidia-glcore.so*
+   ...
+}
+{
+   video drivers
+   Memcheck:Value4
+   ...
+   obj:/usr/lib*/libnvidia-glcore.so*
+   ...
+}
+
+
+
+
+
+{
+   dlopen bullshit
+   Memcheck:Leak
+   ...
+   fun:_dl_open
+   ...
+}  
+{
+   buggy xlib
+   Memcheck:Leak
+   ...
+   fun:XGetDefault
+   ...
+}  
+{
+   buggy xlib
+   Memcheck:Leak
+   ...
+   fun:XrmGetFileDatabase
+   ...
+}  
+{
+   buggy xlib
+   Memcheck:Leak
+   ...
+   fun:_XlcCreateLocaleDataBase
+   ...
+}  
+{
+   buggy xlib
+   Memcheck:Leak
+   ...
+   fun:_XlcGetLocaleDataBase
+   ...
+}  
+{
+   buggy xlib
+   Memcheck:Leak
+   ...
+   fun:XkbTranslateKeySym
+   ...
+}  
+{
+   buggy alsa/pipewire
+   Memcheck:Leak
+   ...
+   fun:pw_context_new
+   ...
+}  
+{
+   buggy alsa/pipewire
+   Memcheck:Leak
+   ...
+   fun:dbus_*
+   ...
+}  
+{
+   buggy alsa/pipewire
+   Memcheck:Leak
+   ...
+   fun:_dbus_*
+   ...
+}  
+{
+   buggy alsa/pipewire
+   Memcheck:Leak
+   ...
+   obj:/usr/lib*/libpipewire*
+   ...
+}  
+{
+   buggy who knows what
+   Memcheck:Leak
+   ...
+   obj:/lib*/ld-linux-x86-64*
+   ...
+}  
+
+

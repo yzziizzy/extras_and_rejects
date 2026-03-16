@@ -94,10 +94,9 @@ void* hash_find(hashtable* ht, char* key) {
 
 	hash_t hash = strhash(key);
 	int b = hash_find_bucket(ht, hash, key);
-	 
+	
 	return ht->buckets[b].value;
 }
-
 /* -END- hash.c ----- */
 
 

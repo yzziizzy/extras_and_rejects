@@ -24,7 +24,7 @@ hashtable mkdir_cache;
 #define FSU_EXCLUDE_FILES      (1<<3)
 
 // return 0 to continue, nonzero to stop all directory scanning
-typedef int (*readDirCallbackFn)(char* /*fullPath*/, char* /*fileName*/, unsigned char /*type*/, void* /*data*/);
+typedef int (*readDirCallbackFn)(char* /*path*/, char* /*fullPath*/, char* /*fileName*/, unsigned char /*type*/, void* /*data*/);
 // returns negative on error, nonzero if scanning was halted by the callback
 int recurse_dirs(
 	char* path, 
@@ -278,7 +278,7 @@ int recurse_dirs(
 		
 		if(type == DT_DIR) {
 			if(flags & FSU_INCLUDE_DIRS) {
-				stop = fn(fullPath, n, type, data);
+				stop = fn(path, fullPath, n, type, data);
 			}
 			if(depth != 0) {
 				stop |= recurse_dirs(fullPath, fn, data, depth - 1, flags);
@@ -286,7 +286,7 @@ int recurse_dirs(
 		}
 		else if(type == DT_REG) {
 			if(!(flags & FSU_EXCLUDE_FILES)) {
-				stop = fn(fullPath, n, type, data);
+				stop = fn(path, fullPath, n, type, data);
 			}
 		}
 		
@@ -298,7 +298,6 @@ int recurse_dirs(
 	
 	return stop;
 }
-
 
 
 

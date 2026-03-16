@@ -3,9 +3,9 @@
 // link with -lutil
 
 //char* build_dir;
-//char* source_dir = "__SED_TOKEN_SOURCE_PATH"; // "src"
-//char* exe_path = "__SED_TOKEN_EXE_PATH__SED_TOKEN_EXE_NAME";
-//char* base_build_dir = "__SED_TOKEN_BUILD_PATH";
+//char* source_dir = "src"; // "src"
+//char* exe_path = "./meshtool";
+//char* base_build_dir = "build";
 
 
 #include "_build.inc.c"
@@ -13,28 +13,37 @@
 
 
 char* sources[] = {
-	"__SED_TOKEN_CODE_NAME",
+	"__SED_TOKEN_SOURCE_FILE_NAME",
 	NULL,
 };
 
 // these are run through pkg-config
 char* lib_headers_needed[] = {
-	// freetype and fontconfig are dynamically loaded only when needed
 //	"freetype2", "fontconfig",
-	
 //	"gl", "glu", "glew",
+//	"vulkan",
 //	"libpcre2-8", 
-//	"libpng", 
+//	"vorbisfile", "opusfile",
+//	"libpng", "libjpeg",
 //	"x11", "xfixes",
+//	"alsa",
+//	"zlib",
+//	"openssl",
 	NULL
 };
 
 // these are run through pkg-config
 char* libs_needed[] = {
+//	"freetype2", "fontconfig",
 //	"gl", "glu", "glew",
+//	"vulkan",
 //	"libpcre2-8", 
-//	"libpng",
+//	"vorbisfile", "opusfile",
+//	"libpng", "libjpeg",
 //	"x11", "xfixes",
+//	"alsa",
+//	"zlib",
+//	"openssl",
 	NULL,
 };
 
@@ -60,6 +69,7 @@ char* profiling_cflags[] = {
 char* release_cflags[] = {
 	"-DRELEASE",
 	"-O3",
+	"-flto", // really slow
 //	"-Wno-array-bounds", // temporary, until some shit in sti gets fixed. only happens with -O3
 	NULL
 };
@@ -71,15 +81,18 @@ char* common_cflags[] = {
 	"-DLINUX",
 	"-march=native",
 	"-mtune=native", 
+	"-fno-plt",
+	"-fPIC",
 	"-fno-math-errno", 
 	"-fexcess-precision=fast", 
 	"-fno-signed-zeros",
 	"-fno-trapping-math", 
 	"-fassociative-math", 
-	"-ffinite-math-only", 
+//	"-ffinite-math-only", 
 	"-fno-rounding-math", 
 	"-fno-signaling-nans", 
-//	"-include signal.h", 
+//	"-include signal.h",
+//	"-include src/global.h", 
 	"-pthread", 
 	"-Wall", 
 	"-Werror", 
@@ -98,6 +111,7 @@ char* common_cflags[] = {
 	"-Wno-char-subscripts", 
 	"-Wno-int-conversion", 
 	"-Wno-int-to-pointer-cast", 
+	"-Wno-enum-conversion",
 	"-Wno-unknown-pragmas",
 	"-Wno-sequence-point",
 	"-Wno-switch",
@@ -105,9 +119,14 @@ char* common_cflags[] = {
 	"-Wno-comment",
 	"-Wno-strict-aliasing",
 	"-Wno-endif-labels",
+	"-Wno-address-of-packed-member",
+	"-Wno-multichar",
+	"-Wno-type-limits", // 'comparison of unsigned expression in "< 0" is always false' bullshit from a macro
+	"-Wno-address-of-packed-member", // not usefull on x64
 	"-Werror=implicit-function-declaration",
 	"-Werror=uninitialized",
 	"-Werror=return-type",
+	"-Werror=incompatible-pointer-types",
 	NULL,
 };
 
@@ -134,9 +153,9 @@ int main(int argc, char* argv[]) {
 	
 	obj->mode_debug = 2;
 	
-	obj->exe_path = "__SED_TOKEN_EXE_PATH__SED_TOKEN_EXE_NAME";
-	obj->source_dir = "__SED_TOKEN_SOURCE_PATH";
-	obj->base_build_dir = "__SED_TOKEN_BUILD_PATH";
+	obj->exe_path = "__SED_TOKEN_EXE_REL_PATH";
+	obj->source_dir = "__SED_TOKEN_SOURCE_REL_PATH";
+	obj->base_build_dir = "__SED_TOKEN_BUILD_REL_PATH";
 	
 	obj->sources = sources;
 	
@@ -160,35 +179,57 @@ int main(int argc, char* argv[]) {
 	//
 	//---------------------------
 
+#if COMPILE_SPIRV
+	if(scan_glsl_folder("src/shaders", "build/core/d")) {
+		printf("\e[1;31mGLSL build failed.\e[0m\n");
+		return 1;
+	}
+	
+	if(scan_glsl_folder("src/shaders/compute", "build/core/d")) {
+		printf("\e[1;31mGLSL build failed.\e[0m\n");
+		return 1;
+	}
+#endif
 	
 	//printf("%s\n\n\n\n",g_gcc_opts_flat);
 //	rglob src;
 	//recursive_glob("src", "*.[ch]", 0, &src);
 	
-	strlist objs;
-	strlist_init(&objs);
 	
-	float source_count = list_len(obj->sources);
+	objfile* tasks[] = {obj};
+	int taskCount = sizeof(tasks) / sizeof(tasks[0]);
 	
-	for(int i = 0; obj->sources[i]; i++) {
-//		printf("%i: checking %s\n", i, sources[i]);
-		char* t = path_join(obj->source_dir, obj->sources[i]);
-		check_source(t, &objs, obj);
-		free(t);
+	
+	float source_count = 0;
+	
+	for(int o = 0; o < taskCount; o++) {
+		source_count += list_len(tasks[o]->sources);
+	}
+	
+	for(int o = 0; o < taskCount; o++) {
+		for(int i = 0; tasks[o]->sources[i]; i++) {
+	//		printf("%i: checking %s\n", i, sources[i]);
+			char* t = path_join(tasks[o]->source_dir, tasks[o]->sources[i]);
+			check_source(t, tasks[o]);
+			free(t);
+			
+			printf("\rChecking dependencies...  %s", printpct((i * 100) / source_count));
+		}
+	
+		printf("\rChecking dependencies...  \e[32mDONE\e[0m\n");
+		fflush(stdout);
 		
-		printf("\rChecking dependencies...  %s", printpct((i * 100) / source_count));
-	}
-	printf("\rChecking dependencies...  \e[32mDONE\e[0m\n");
-	fflush(stdout);
-	
-	
-	
-	if(compile_cache_execute(obj)) {
-		printf("\e[1;31mBuild failed.\e[0m\n");
-		return 1;
+		if(compile_cache_execute(tasks[o])) {
+			printf("\e[1;31mBuild failed.\e[0m\n");
+			return 1;
+		}
+
 	}
 	
-	char* objects_flat = join_str_list(objs.entries, " ");
+	
+	
+	
+	char* objects_flat = join_str_list(obj->objs.entries, " ");
 	
 	
 	cmd = sprintfdup("ar rcs %s/tmp.a %s", obj->build_dir, objects_flat);
@@ -220,7 +261,14 @@ int main(int argc, char* argv[]) {
 	
 	if(!obj->verbose) {
 		// erase the build output if it succeeded
-		printf("\e[F\e[K");
+		
+		// Compiling, dep checking
+		for(int i = 0; i < taskCount; i++) {
+			printf("\e[F\e[K");
+			printf("\e[F\e[K");
+		}
+		
+		// "Linking..."
 		printf("\e[F\e[K");
 		printf("\e[F\e[K");
 		printf("\e[F\e[K");

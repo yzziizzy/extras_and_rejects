@@ -45,6 +45,7 @@ void parse_cli_opts(int argc, char** argv, objfile* obj) {
 
 
 char* default_compile_source(char* src_path, char* obj_path, objfile* obj);
+char* default_compile_json_source(char* src_path, objfile* obj);
 
 void start_obj(objfile* obj) {
 
@@ -93,10 +94,12 @@ void start_obj(objfile* obj) {
 	// initialze the object file list
 	strlist_init(&obj->objs);
 	strlist_init(&obj->compile_cache);
+	strlist_init(&obj->error_json_cache);
+	strlist_init(&obj->error_json_files);
 	
 	if(!obj->compile_source_cmd) obj->compile_source_cmd = default_compile_source;	
+	if(!obj->compile_source_json_cmd) obj->compile_source_json_cmd = default_compile_json_source;	
 }
-
 
 
 

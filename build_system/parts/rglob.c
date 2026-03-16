@@ -19,7 +19,7 @@ typedef struct rglob {
 
 
 
-int rglob_fn(char* full_path, char* file_name, unsigned char type, void* _results) {
+int rglob_fn(char* dir, char* full_path, char* file_name, unsigned char type, void* _results) {
 	rglob* res = (rglob*)_results;
 	
 	if(0 == fnmatch(res->pattern, file_name, 0)) {
@@ -44,6 +44,5 @@ void recursive_glob(char* base_path, char* pattern, int flags, rglob* results) {
 	
 	recurse_dirs(base_path, rglob_fn, results, -1, flags);
 }
-
 
 /* -END- rglob.c ----- */

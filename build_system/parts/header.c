@@ -20,8 +20,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/sysinfo.h>
+#include <sys/mman.h>
 
-
+extern char** environ;
 
 // link with -lutil
 
@@ -59,12 +60,15 @@ typedef struct objfile {
 	char** lib_headers_needed;
 	char** ld_add;
 	
+	int output_error_json;
+	
 	char* source_dir;// "src"
 	char* exe_path; // the executable name
 	char* base_build_dir; //  = "build";
 	
 	// returns a dup'd string with the full, raw command to execute
 	char* (*compile_source_cmd)(char* src_path, char* obj_path, struct objfile* obj);
+	char* (*compile_source_json_cmd)(char* src_path, struct objfile* obj);
 	
 	char mode_debug;
 	char mode_profiling;
@@ -84,6 +88,8 @@ typedef struct objfile {
 	
 	strlist objs; // .o's to be created
 	strlist compile_cache; // list of compile commands to run
+	strlist error_json_cache; // list of compile commands to run
+	strlist error_json_files; // the generated gcc error files for each corresponding compile command
 	
 	char* archive_path; // temporary .a during build process
 } objfile;
